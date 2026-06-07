@@ -325,11 +325,11 @@ function sortComps(comps) {
   const sorted = [...comps];
 
   if (sort === 'price-low') {
-    sorted.sort((a,b) => a.price - b.price);
+    sorted.sort((a,b) => sortablePrice(a.price, 999999999) - sortablePrice(b.price, 999999999));
   }
 
   if (sort === 'price-high') {
-    sorted.sort((a,b) => b.price - a.price);
+    sorted.sort((a,b) => sortablePrice(b.price, -1) - sortablePrice(a.price, -1));
   }
 
   if (sort === 'mileage-low') {
@@ -341,6 +341,10 @@ function sortComps(comps) {
   }
 
   return sorted;
+}
+
+function sortablePrice(price, fallback) {
+  return price === null ? fallback : Number(price);
 }
 
 function filterComps(comps) {
@@ -356,7 +360,7 @@ function filterComps(comps) {
 
     const priceMatches =
       !maxPrice ||
-      Number(car.price) <= maxPrice;
+      (car.price !== null && Number(car.price) <= maxPrice);
 
     const mileageMatches =
       !maxMileage ||
@@ -432,7 +436,11 @@ function renderComps() {
             </div>
 
             <div class="price">
-              $${Number(car.price).toLocaleString()}
+              ${
+                car.price !== null
+                  ? `$${Number(car.price).toLocaleString()}`
+                  : 'Price unavailable'
+              }
             </div>
 
             <div class="details">

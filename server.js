@@ -12,7 +12,7 @@ app.use(express.static(__dirname));
 const MARKETCHECK_API_KEY = String(process.env.MARKETCHECK_API_KEY || '').trim();
 const cache = new Map();
 const MARKETCHECK_SEARCH_PAGE_SIZE = 50;
-const MARKETCHECK_SEARCH_MAX_LISTINGS = 200;
+const MARKETCHECK_SEARCH_MAX_LISTINGS = 300;
 const NHTSA_VEHICLE_TYPES = [
   'car',
   'truck',
@@ -383,10 +383,9 @@ app.post('/api/live-comps', async (req, res) => {
     const { listings, numFound } = await fetchMarketCheckListings(params);
 
     const comps = listings
-      .filter(car => car.price)
       .map(car => ({
         id: car.id,
-        price: Number(car.price),
+        price: car.price ? Number(car.price) : null,
         miles: car.miles ? Number(car.miles) : null,
         dist: Number(car.dist || 0),
 
