@@ -13,6 +13,8 @@ const MARKETCHECK_API_KEY = String(process.env.MARKETCHECK_API_KEY || '').trim()
 const cache = new Map();
 const MARKETCHECK_SEARCH_PAGE_SIZE = 50;
 const MARKETCHECK_SEARCH_MAX_LISTINGS = 300;
+const MARKETCHECK_PAGE_DELAY_MS = 250;
+const MARKETCHECK_RATE_LIMIT_RETRIES = 2;
 const NHTSA_VEHICLE_TYPES = [
   'car',
   'truck',
@@ -31,10 +33,63 @@ async function cachedGet(key, url) {
 async function cachedAxiosGet(key, url, options) {
   if (cache.has(key)) return cache.get(key);
 
-  const res = await axios.get(url, options);
+  const res = await marketCheckGet(url, options);
   cache.set(key, res.data);
 
   return res.data;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getUpstreamMessage(err) {
+  const data = err.response?.data;
+
+  return typeof data === 'string'
+    ? data
+    : data?.message || data?.error || data?.detail || data?.status || '';
+}
+
+function getRetryAfterMs(headers = {}) {
+  const retryAfter = Number(headers['retry-after']);
+
+  if (!Number.isFinite(retryAfter) || retryAfter <= 0 || retryAfter > 10) {
+    return null;
+  }
+
+  return retryAfter * 1000;
+}
+
+function isShortMarketCheckThrottle(err) {
+  if (err.response?.status !== 429) return false;
+
+  const message = getUpstreamMessage(err).toLowerCase();
+
+  return !message.includes('monthly') && !message.includes('quota');
+}
+
+async function marketCheckGet(url, options) {
+  for (let attempt = 0; attempt <= MARKETCHECK_RATE_LIMIT_RETRIES; attempt++) {
+    try {
+      return await axios.get(url, options);
+    } catch (err) {
+      if (!isShortMarketCheckThrottle(err) || attempt === MARKETCHECK_RATE_LIMIT_RETRIES) {
+        throw err;
+      }
+
+      const retryDelayMs =
+        getRetryAfterMs(err.response?.headers) || MARKETCHECK_PAGE_DELAY_MS * (attempt + 2);
+
+      console.warn('MarketCheck throttled request; retrying shortly:', {
+        attempt: attempt + 1,
+        retryDelayMs,
+        data: err.response?.data
+      });
+
+      await sleep(retryDelayMs);
+    }
+  }
 }
 
 function sortUnique(values) {
@@ -190,7 +245,7 @@ async function fetchMarketCheckListings(params) {
     let response;
 
     try {
-      response = await axios.get(
+      response = await marketCheckGet(
         'https://api.marketcheck.com/v2/search/car/active',
         { params: pageParams }
       );
@@ -219,6 +274,8 @@ async function fetchMarketCheckListings(params) {
     ) {
       break;
     }
+
+    await sleep(MARKETCHECK_PAGE_DELAY_MS);
   }
 
   return {
@@ -236,17 +293,17 @@ function redactSensitiveParams(params) {
 
 function getMarketCheckError(err) {
   const status = err.response?.status;
-  const data = err.response?.data;
-  const upstreamMessage =
-    typeof data === 'string'
-      ? data
-      : data?.message || data?.error || data?.detail || data?.status;
+  const upstreamMessage = getUpstreamMessage(err);
 
   if (status === 401 || status === 403) {
     return 'MarketCheck rejected the API key. Check MARKETCHECK_API_KEY in Coolify and redeploy the service.';
   }
 
   if (status === 429) {
+    if (upstreamMessage.toLowerCase().includes('monthly') || upstreamMessage.toLowerCase().includes('quota')) {
+      return 'MarketCheck monthly API quota is exhausted. Check the MarketCheck dashboard for remaining quota.';
+    }
+
     return 'MarketCheck rate limit reached. Please wait and try again.';
   }
 
