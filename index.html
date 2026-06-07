@@ -202,6 +202,8 @@
 
       <input id="maxDistance" type="number" min="0" step="5" placeholder="Max distance">
 
+      <input id="dealerFilter" placeholder="Dealer, stock, VIN">
+
     </div>
 
     <button onclick="runSearch()">
@@ -352,6 +354,7 @@ function filterComps(comps) {
   const maxPrice = Number(document.getElementById('maxPrice').value);
   const maxMileage = Number(document.getElementById('maxMileage').value);
   const maxDistance = Number(document.getElementById('maxDistance').value);
+  const dealerFilter = document.getElementById('dealerFilter').value.trim().toLowerCase();
 
   return comps.filter(car => {
     const trimMatches =
@@ -370,7 +373,20 @@ function filterComps(comps) {
       !maxDistance ||
       Number(car.dist) <= maxDistance;
 
-    return trimMatches && priceMatches && mileageMatches && distanceMatches;
+    const dealerMatches =
+      !dealerFilter ||
+      [
+        car.dealerName,
+        car.dealerGroup,
+        car.dealerWebsite,
+        car.source,
+        car.stockNo,
+        car.vin
+      ]
+        .map(value => String(value || '').toLowerCase())
+        .some(value => value.includes(dealerFilter));
+
+    return trimMatches && priceMatches && mileageMatches && distanceMatches && dealerMatches;
   });
 }
 
@@ -461,6 +477,30 @@ function renderComps() {
               Dealer:
               ${car.dealerName}
               <br>
+
+              ${
+                car.dealerGroup
+                  ? `Group: ${car.dealerGroup}<br>`
+                  : ''
+              }
+
+              ${
+                car.stockNo
+                  ? `Stock #: ${car.stockNo}<br>`
+                  : ''
+              }
+
+              ${
+                car.vin
+                  ? `VIN: ${car.vin}<br>`
+                  : ''
+              }
+
+              ${
+                car.source
+                  ? `Source: ${car.source}<br>`
+                  : ''
+              }
 
               Location:
               ${car.city}, ${car.state}
@@ -570,13 +610,13 @@ async function runSearch() {
 }
 
 document.addEventListener('change', e => {
-  if (['sort', 'trimFilter', 'maxPrice', 'maxMileage', 'maxDistance'].includes(e.target.id)) {
+  if (['sort', 'trimFilter', 'maxPrice', 'maxMileage', 'maxDistance', 'dealerFilter'].includes(e.target.id)) {
     renderComps();
   }
 });
 
 document.addEventListener('input', e => {
-  if (['maxPrice', 'maxMileage', 'maxDistance'].includes(e.target.id)) {
+  if (['maxPrice', 'maxMileage', 'maxDistance', 'dealerFilter'].includes(e.target.id)) {
     renderComps();
   }
 });

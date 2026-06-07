@@ -196,7 +196,10 @@ function buildMarketCheckParams({ year, make, model, zip, radius }) {
     zip,
     radius: radius || 75,
     rows: MARKETCHECK_SEARCH_PAGE_SIZE,
-    start: 0
+    start: 0,
+    nodedup: true,
+    sort_by: 'dist',
+    sort_order: 'asc'
   };
 
   if (String(make || '').toLowerCase() === 'ford') {
@@ -440,24 +443,34 @@ app.post('/api/live-comps', async (req, res) => {
     const { listings, numFound } = await fetchMarketCheckListings(params);
 
     const comps = listings
-      .map(car => ({
-        id: car.id,
-        price: car.price ? Number(car.price) : null,
-        miles: car.miles ? Number(car.miles) : null,
-        dist: Number(car.dist || 0),
+      .map(car => {
+        const dealer = car.mc_dealership || car.dealer || {};
 
-        year: car.year || '',
-        make: car.build?.make || make,
-        model: car.build?.model || model,
-        trim: car.build?.trim || '',
+        return {
+          id: car.id,
+          vin: car.vin || '',
+          stockNo: car.stock_no || '',
+          source: car.source || '',
+          inventoryType: car.inventory_type || '',
+          price: car.price ? Number(car.price) : null,
+          miles: car.miles ? Number(car.miles) : null,
+          dist: Number(car.dist || 0),
 
-        dealerName: car.dealer?.name || 'Unknown Dealer',
-        city: car.dealer?.city || '',
-        state: car.dealer?.state || '',
+          year: car.year || '',
+          make: car.build?.make || make,
+          model: car.build?.model || model,
+          trim: car.build?.trim || '',
 
-        image: car.media?.photo_links?.[0] || '',
-        link: car.vdp_url || ''
-      }));
+          dealerName: dealer.name || car.dealer?.name || 'Unknown Dealer',
+          dealerGroup: dealer.mc_dealership_group_name || dealer.dealership_group_name || '',
+          dealerWebsite: dealer.website || car.dealer?.website || '',
+          city: dealer.city || car.dealer?.city || '',
+          state: dealer.state || car.dealer?.state || '',
+
+          image: car.media?.photo_links?.[0] || '',
+          link: car.vdp_url || ''
+        };
+      });
 
     if (!comps.length) {
       return res.json({
