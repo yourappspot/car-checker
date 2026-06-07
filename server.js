@@ -256,20 +256,29 @@ app.get('/api/models', async (req, res) => {
       });
     }
 
-    let models = [];
+    const [marketCheckResult, nhtsaResult] = await Promise.allSettled([
+      getMarketCheckModels(year, make),
+      getNhtsaModels(year, make)
+    ]);
 
-    try {
-      models = await getMarketCheckModels(year, make);
-    } catch (err) {
-      console.warn('MarketCheck model facets unavailable; falling back to NHTSA:', {
-        status: err.response?.status,
-        data: err.response?.data || err.message
+    if (marketCheckResult.status === 'rejected') {
+      console.warn('MarketCheck model facets unavailable:', {
+        status: marketCheckResult.reason.response?.status,
+        data: marketCheckResult.reason.response?.data || marketCheckResult.reason.message
       });
     }
 
-    if (!models.length) {
-      models = await getNhtsaModels(year, make);
+    if (nhtsaResult.status === 'rejected') {
+      console.warn('NHTSA model list unavailable:', {
+        status: nhtsaResult.reason.response?.status,
+        data: nhtsaResult.reason.response?.data || nhtsaResult.reason.message
+      });
     }
+
+    const models = sortUnique([
+      ...(marketCheckResult.status === 'fulfilled' ? marketCheckResult.value : []),
+      ...(nhtsaResult.status === 'fulfilled' ? nhtsaResult.value : [])
+    ]);
 
     res.json({ models });
   } catch (err) {
