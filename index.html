@@ -622,6 +622,10 @@ function getSearchMeta(data) {
     messages.push('Exact stock/VIN lookup found no additional MarketCheck listings.');
   }
 
+  if (data.exactLookup?.diagnostics?.length) {
+    messages.push(data.exactLookup.diagnostics.join(' '));
+  }
+
   if (data.dealerScan?.searched) {
     if (data.dealerScan.added > 0) {
       messages.push(`Dealer scan checked ${data.dealerScan.scanned} listings beyond the normal limit and added ${data.dealerScan.added}.`);

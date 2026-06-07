@@ -346,6 +346,52 @@ function listingMatchesDealerTerm(car, dealerTerm) {
     .some(value => value.includes(dealerTerm));
 }
 
+function normalizeComparableValue(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function getExactListingDiagnostics(params, exactListings) {
+  if (!exactListings.length) return [];
+
+  const car = exactListings[0];
+  const dealer = car.mc_dealership || car.dealer || {};
+  const broadModel = normalizeComparableValue(params.model);
+  const exactModel = normalizeComparableValue(car.build?.model || car.model);
+  const distance = Number(car.dist);
+  const radius = Number(params.radius);
+
+  const diagnostics = [
+    `Exact VIN fields: ${car.year || 'unknown year'} ${car.build?.make || car.make || 'unknown make'} ${car.build?.model || car.model || 'unknown model'} ${car.build?.trim || ''}`.trim(),
+    `Dealer/source: ${dealer.name || car.dealer?.name || 'unknown dealer'}${car.source ? ` via ${car.source}` : ''}`
+  ];
+
+  if (String(car.year || '') !== String(params.year || '')) {
+    diagnostics.push(`Year differs from broad search (${car.year || 'blank'} vs ${params.year}).`);
+  }
+
+  if (normalizeComparableValue(car.build?.make || car.make) !== normalizeComparableValue(params.make)) {
+    diagnostics.push(`Make differs from broad search (${car.build?.make || car.make || 'blank'} vs ${params.make}).`);
+  }
+
+  if (exactModel && broadModel && exactModel !== broadModel) {
+    diagnostics.push(`Model differs from broad search (${car.build?.model || car.model || 'blank'} vs ${params.model}).`);
+  }
+
+  if (Number.isFinite(distance) && distance > 0) {
+    diagnostics.push(`Exact VIN distance returned by MarketCheck: ${distance} miles.`);
+
+    if (Number.isFinite(radius) && distance > radius) {
+      diagnostics.push(`Distance is outside selected radius (${radius} miles).`);
+    }
+  } else {
+    diagnostics.push('Exact VIN lookup did not return a usable distance for radius comparison.');
+  }
+
+  return diagnostics;
+}
+
 async function fetchDealerScanListings(params, query, startAt, numFound) {
   const dealerTerm = getDealerSearchTerm(query);
   const totalMatches = Number(numFound || 0);
@@ -609,6 +655,7 @@ app.post('/api/live-comps', async (req, res) => {
 
     const { listings, numFound } = await fetchMarketCheckListings(params);
     const exactLookup = await fetchExactIdentifierListings(params, dealerFilter);
+    const exactDiagnostics = getExactListingDiagnostics(params, exactLookup.listings);
     const dealerScan = await fetchDealerScanListings(
       params,
       dealerFilter,
@@ -660,7 +707,8 @@ app.post('/api/live-comps', async (req, res) => {
       exactLookup: {
         searched: exactLookup.searched,
         numFound: exactLookup.numFound ?? null,
-        added: listingsWithExact.length - listings.length
+        added: listingsWithExact.length - listings.length,
+        diagnostics: exactDiagnostics
       },
       dealerScan: {
         searched: dealerScan.searched,
