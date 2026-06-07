@@ -13,6 +13,7 @@ const MARKETCHECK_API_KEY = String(process.env.MARKETCHECK_API_KEY || '').trim()
 const cache = new Map();
 const MARKETCHECK_SEARCH_PAGE_SIZE = 50;
 const MARKETCHECK_SEARCH_MAX_LISTINGS = 400;
+const MARKETCHECK_DEALER_SCAN_MAX_LISTINGS = 2500;
 const MARKETCHECK_PAGE_DELAY_MS = 250;
 const MARKETCHECK_RATE_LIMIT_RETRIES = 2;
 const NHTSA_VEHICLE_TYPES = [
@@ -300,6 +301,109 @@ function mergeListings(primaryListings, extraListings) {
   return merged;
 }
 
+function isExactIdentifierQuery(query) {
+  const value = String(query || '').trim();
+  const normalized = value.replace(/[^a-z0-9]/gi, '').toUpperCase();
+
+  return (
+    /^[A-HJ-NPR-Z0-9]{17}$/.test(normalized) ||
+    (/^[A-Z0-9-]{4,20}$/i.test(value) && /\d/.test(value))
+  );
+}
+
+function getDealerSearchTerm(query) {
+  const value = String(query || '').trim().toLowerCase();
+
+  if (value.length < 3 || isExactIdentifierQuery(value)) {
+    return '';
+  }
+
+  return value;
+}
+
+function getDealerSearchValues(car) {
+  const dealer = car.mc_dealership || car.dealer || {};
+
+  return [
+    dealer.name,
+    dealer.mc_dealership_group_name,
+    dealer.dealership_group_name,
+    dealer.mc_sub_dealership_group_name,
+    dealer.website,
+    car.dealer?.name,
+    car.dealer?.dealership_group_name,
+    car.dealer?.website,
+    car.source,
+    car.data_source,
+    car.vdp_url,
+    car.heading
+  ];
+}
+
+function listingMatchesDealerTerm(car, dealerTerm) {
+  return getDealerSearchValues(car)
+    .map(value => String(value || '').toLowerCase())
+    .some(value => value.includes(dealerTerm));
+}
+
+async function fetchDealerScanListings(params, query, startAt, numFound) {
+  const dealerTerm = getDealerSearchTerm(query);
+  const totalMatches = Number(numFound || 0);
+
+  if (!dealerTerm || !totalMatches || startAt >= totalMatches) {
+    return {
+      listings: [],
+      searched: false,
+      scanned: 0,
+      reachedEnd: true
+    };
+  }
+
+  const maxScanEnd = Math.min(totalMatches, MARKETCHECK_DEALER_SCAN_MAX_LISTINGS);
+  const matches = [];
+  let scanned = 0;
+  let reachedEnd = true;
+
+  for (
+    let start = startAt;
+    start < maxScanEnd;
+    start += MARKETCHECK_SEARCH_PAGE_SIZE
+  ) {
+    const pageParams = {
+      ...params,
+      rows: MARKETCHECK_SEARCH_PAGE_SIZE,
+      start
+    };
+
+    console.log('MarketCheck dealer scan params:', redactSensitiveParams(pageParams));
+
+    const response = await marketCheckGet(
+      'https://api.marketcheck.com/v2/search/car/active',
+      { params: pageParams }
+    );
+
+    const pageListings = response.data.listings || [];
+    scanned += pageListings.length;
+    matches.push(...pageListings.filter(car => listingMatchesDealerTerm(car, dealerTerm)));
+
+    if (!pageListings.length || pageListings.length < MARKETCHECK_SEARCH_PAGE_SIZE) {
+      reachedEnd = true;
+      break;
+    }
+
+    reachedEnd = start + MARKETCHECK_SEARCH_PAGE_SIZE >= totalMatches;
+    await sleep(MARKETCHECK_PAGE_DELAY_MS);
+  }
+
+  return {
+    listings: matches,
+    searched: true,
+    scanned,
+    reachedEnd,
+    scanLimit: maxScanEnd
+  };
+}
+
 function getExactLookupParams(params, query) {
   const value = String(query || '').trim();
   const normalized = value.replace(/[^a-z0-9]/gi, '').toUpperCase();
@@ -313,7 +417,7 @@ function getExactLookupParams(params, query) {
     };
   }
 
-  if (/^[A-Z0-9-]{4,20}$/i.test(value)) {
+  if (/^[A-Z0-9-]{4,20}$/i.test(value) && /\d/.test(value)) {
     return {
       ...params,
       stock_no: value,
@@ -482,7 +586,14 @@ app.post('/api/live-comps', async (req, res) => {
 
     const { listings, numFound } = await fetchMarketCheckListings(params);
     const exactLookup = await fetchExactIdentifierListings(params, dealerFilter);
-    const allListings = mergeListings(listings, exactLookup.listings);
+    const dealerScan = await fetchDealerScanListings(
+      params,
+      dealerFilter,
+      listings.length,
+      numFound
+    );
+    const listingsWithExact = mergeListings(listings, exactLookup.listings);
+    const allListings = mergeListings(listingsWithExact, dealerScan.listings);
 
     const comps = allListings
       .map(car => {
@@ -526,7 +637,15 @@ app.post('/api/live-comps', async (req, res) => {
       exactLookup: {
         searched: exactLookup.searched,
         numFound: exactLookup.numFound ?? null,
-        added: allListings.length - listings.length
+        added: listingsWithExact.length - listings.length
+      },
+      dealerScan: {
+        searched: dealerScan.searched,
+        scanned: dealerScan.scanned,
+        found: dealerScan.listings.length,
+        added: allListings.length - listingsWithExact.length,
+        reachedEnd: dealerScan.reachedEnd,
+        scanLimit: dealerScan.scanLimit ?? null
       },
       limit: MARKETCHECK_SEARCH_MAX_LISTINGS,
       comps

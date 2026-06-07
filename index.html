@@ -614,13 +614,27 @@ async function runSearch() {
 }
 
 function getSearchMeta(data) {
-  if (!data.exactLookup?.searched) return '';
+  const messages = [];
 
   if (data.exactLookup.added > 0) {
-    return ` Exact stock/VIN lookup added ${data.exactLookup.added} listing${data.exactLookup.added === 1 ? '' : 's'}.`;
+    messages.push(`Exact stock/VIN lookup added ${data.exactLookup.added} listing${data.exactLookup.added === 1 ? '' : 's'}.`);
+  } else if (data.exactLookup?.searched) {
+    messages.push('Exact stock/VIN lookup found no additional MarketCheck listings.');
   }
 
-  return ' Exact stock/VIN lookup found no additional MarketCheck listings.';
+  if (data.dealerScan?.searched) {
+    if (data.dealerScan.added > 0) {
+      messages.push(`Dealer scan checked ${data.dealerScan.scanned} listings beyond the normal limit and added ${data.dealerScan.added}.`);
+    } else {
+      messages.push(`Dealer scan checked ${data.dealerScan.scanned} listings beyond the normal limit and found no additional matches.`);
+    }
+
+    if (!data.dealerScan.reachedEnd) {
+      messages.push(`Dealer scan stopped at ${data.dealerScan.scanLimit} total listings.`);
+    }
+  }
+
+  return messages.length ? ` ${messages.join(' ')}` : '';
 }
 
 document.addEventListener('change', e => {
