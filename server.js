@@ -11,6 +11,8 @@ app.use(express.static(__dirname));
 
 const MARKETCHECK_API_KEY = String(process.env.MARKETCHECK_API_KEY || '').trim();
 const cache = new Map();
+const MARKETCHECK_SEARCH_PAGE_SIZE = 50;
+const MARKETCHECK_SEARCH_MAX_LISTINGS = 100;
 const NHTSA_VEHICLE_TYPES = [
   'car',
   'truck',
@@ -138,7 +140,8 @@ function buildMarketCheckParams({ year, make, model, zip, radius }) {
     make,
     zip,
     radius: radius || 75,
-    rows: 50
+    rows: MARKETCHECK_SEARCH_PAGE_SIZE,
+    start: 0
   };
 
   if (String(make || '').toLowerCase() === 'ford') {
@@ -165,6 +168,63 @@ function buildMarketCheckParams({ year, make, model, zip, radius }) {
 
   params.model = marketModel;
   return params;
+}
+
+async function fetchMarketCheckListings(params) {
+  const listings = [];
+  let numFound = null;
+
+  for (
+    let start = 0;
+    start < MARKETCHECK_SEARCH_MAX_LISTINGS;
+    start += MARKETCHECK_SEARCH_PAGE_SIZE
+  ) {
+    const pageParams = {
+      ...params,
+      rows: MARKETCHECK_SEARCH_PAGE_SIZE,
+      start
+    };
+
+    console.log('MarketCheck search params:', redactSensitiveParams(pageParams));
+
+    let response;
+
+    try {
+      response = await axios.get(
+        'https://api.marketcheck.com/v2/search/car/active',
+        { params: pageParams }
+      );
+    } catch (err) {
+      if (start > 0 && err.response?.status === 422 && listings.length) {
+        console.warn('MarketCheck pagination stopped at subscription limit:', {
+          status: err.response.status,
+          data: err.response.data
+        });
+        break;
+      }
+
+      throw err;
+    }
+
+    const pageListings = response.data.listings || [];
+    numFound = Number(response.data.num_found ?? numFound ?? pageListings.length);
+
+    listings.push(...pageListings);
+
+    if (
+      !pageListings.length ||
+      listings.length >= MARKETCHECK_SEARCH_MAX_LISTINGS ||
+      listings.length >= numFound ||
+      pageListings.length < MARKETCHECK_SEARCH_PAGE_SIZE
+    ) {
+      break;
+    }
+  }
+
+  return {
+    listings: listings.slice(0, MARKETCHECK_SEARCH_MAX_LISTINGS),
+    numFound
+  };
 }
 
 function redactSensitiveParams(params) {
@@ -320,14 +380,7 @@ app.post('/api/live-comps', async (req, res) => {
       radius
     });
 
-    console.log('MarketCheck search params:', redactSensitiveParams(params));
-
-    const response = await axios.get(
-      'https://api.marketcheck.com/v2/search/car/active',
-      { params }
-    );
-
-    const listings = response.data.listings || [];
+    const { listings, numFound } = await fetchMarketCheckListings(params);
 
     const comps = listings
       .filter(car => car.price)
@@ -358,6 +411,8 @@ app.post('/api/live-comps', async (req, res) => {
 
     res.json({
       total: comps.length,
+      numFound,
+      limit: MARKETCHECK_SEARCH_MAX_LISTINGS,
       comps
     });
   } catch (err) {
