@@ -363,6 +363,8 @@ async function fetchDealerScanListings(params, query, startAt, numFound) {
   const matches = [];
   let scanned = 0;
   let reachedEnd = true;
+  let providerLimited = false;
+  let stoppedAt = null;
 
   for (
     let start = startAt;
@@ -377,10 +379,29 @@ async function fetchDealerScanListings(params, query, startAt, numFound) {
 
     console.log('MarketCheck dealer scan params:', redactSensitiveParams(pageParams));
 
-    const response = await marketCheckGet(
-      'https://api.marketcheck.com/v2/search/car/active',
-      { params: pageParams }
-    );
+    let response;
+
+    try {
+      response = await marketCheckGet(
+        'https://api.marketcheck.com/v2/search/car/active',
+        { params: pageParams }
+      );
+    } catch (err) {
+      if (err.response?.status === 422) {
+        console.warn('MarketCheck dealer scan stopped at provider pagination limit:', {
+          status: err.response.status,
+          start,
+          data: err.response.data
+        });
+
+        providerLimited = true;
+        reachedEnd = false;
+        stoppedAt = start;
+        break;
+      }
+
+      throw err;
+    }
 
     const pageListings = response.data.listings || [];
     scanned += pageListings.length;
@@ -399,6 +420,8 @@ async function fetchDealerScanListings(params, query, startAt, numFound) {
     listings: matches,
     searched: true,
     scanned,
+    providerLimited,
+    stoppedAt,
     reachedEnd,
     scanLimit: maxScanEnd
   };
@@ -644,6 +667,8 @@ app.post('/api/live-comps', async (req, res) => {
         scanned: dealerScan.scanned,
         found: dealerScan.listings.length,
         added: allListings.length - listingsWithExact.length,
+        providerLimited: dealerScan.providerLimited,
+        stoppedAt: dealerScan.stoppedAt,
         reachedEnd: dealerScan.reachedEnd,
         scanLimit: dealerScan.scanLimit ?? null
       },

@@ -630,7 +630,11 @@ function getSearchMeta(data) {
     }
 
     if (!data.dealerScan.reachedEnd) {
-      messages.push(`Dealer scan stopped at ${data.dealerScan.scanLimit} total listings.`);
+      if (data.dealerScan.providerLimited) {
+        messages.push(`MarketCheck stopped dealer scan at listing ${data.dealerScan.stoppedAt}.`);
+      } else {
+        messages.push(`Dealer scan stopped at ${data.dealerScan.scanLimit} total listings.`);
+      }
     }
   }
 
