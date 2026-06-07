@@ -219,6 +219,7 @@
 <script>
 
 let latestData = [];
+let latestMeta = '';
 
 async function loadYears() {
   try {
@@ -432,6 +433,7 @@ function renderComps() {
 
       <p class="muted">
         ${comps.length} of ${latestData.length} listings shown.
+        ${latestMeta}
       </p>
 
       ${comps.map(car => `
@@ -566,7 +568,8 @@ async function runSearch() {
     make: document.getElementById('make').value,
     model: document.getElementById('model').value,
     zip: document.getElementById('zip').value,
-    radius: document.getElementById('radius').value
+    radius: document.getElementById('radius').value,
+    dealerFilter: document.getElementById('dealerFilter').value
   };
 
   if (!payload.year || !payload.make || !payload.model || !payload.zip) {
@@ -604,9 +607,20 @@ async function runSearch() {
   }
 
   latestData = data.comps;
+  latestMeta = getSearchMeta(data);
   updateTrimFilter(latestData);
 
   renderComps();
+}
+
+function getSearchMeta(data) {
+  if (!data.exactLookup?.searched) return '';
+
+  if (data.exactLookup.added > 0) {
+    return ` Exact stock/VIN lookup added ${data.exactLookup.added} listing${data.exactLookup.added === 1 ? '' : 's'}.`;
+  }
+
+  return ' Exact stock/VIN lookup found no additional MarketCheck listings.';
 }
 
 document.addEventListener('change', e => {

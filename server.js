@@ -287,6 +287,83 @@ async function fetchMarketCheckListings(params) {
   };
 }
 
+function getListingKey(car) {
+  return [
+    car.id,
+    car.vin,
+    car.stock_no,
+    car.source
+  ]
+    .map(value => String(value || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join('|');
+}
+
+function mergeListings(primaryListings, extraListings) {
+  const seen = new Set();
+  const merged = [];
+
+  [...primaryListings, ...extraListings].forEach(car => {
+    const key = getListingKey(car);
+
+    if (key && seen.has(key)) return;
+
+    if (key) seen.add(key);
+    merged.push(car);
+  });
+
+  return merged;
+}
+
+function getExactLookupParams(params, query) {
+  const value = String(query || '').trim();
+  const normalized = value.replace(/[^a-z0-9]/gi, '').toUpperCase();
+
+  if (/^[A-HJ-NPR-Z0-9]{17}$/.test(normalized)) {
+    return {
+      api_key: MARKETCHECK_API_KEY,
+      vin: normalized,
+      rows: MARKETCHECK_SEARCH_PAGE_SIZE,
+      nodedup: true
+    };
+  }
+
+  if (/^[A-Z0-9-]{4,20}$/i.test(value)) {
+    return {
+      ...params,
+      stock_no: value,
+      rows: MARKETCHECK_SEARCH_PAGE_SIZE,
+      start: 0
+    };
+  }
+
+  return null;
+}
+
+async function fetchExactIdentifierListings(params, query) {
+  const lookupParams = getExactLookupParams(params, query);
+
+  if (!lookupParams) {
+    return {
+      listings: [],
+      searched: false
+    };
+  }
+
+  console.log('MarketCheck exact lookup params:', redactSensitiveParams(lookupParams));
+
+  const response = await marketCheckGet(
+    'https://api.marketcheck.com/v2/search/car/active',
+    { params: lookupParams }
+  );
+
+  return {
+    listings: response.data.listings || [],
+    numFound: Number(response.data.num_found ?? 0),
+    searched: true
+  };
+}
+
 function redactSensitiveParams(params) {
   return {
     ...params,
@@ -417,7 +494,8 @@ app.post('/api/live-comps', async (req, res) => {
       make,
       model,
       zip,
-      radius
+      radius,
+      dealerFilter
     } = req.body;
 
     if (!MARKETCHECK_API_KEY) {
@@ -441,8 +519,10 @@ app.post('/api/live-comps', async (req, res) => {
     });
 
     const { listings, numFound } = await fetchMarketCheckListings(params);
+    const exactLookup = await fetchExactIdentifierListings(params, dealerFilter);
+    const allListings = mergeListings(listings, exactLookup.listings);
 
-    const comps = listings
+    const comps = allListings
       .map(car => {
         const dealer = car.mc_dealership || car.dealer || {};
 
@@ -481,6 +561,11 @@ app.post('/api/live-comps', async (req, res) => {
     res.json({
       total: comps.length,
       numFound,
+      exactLookup: {
+        searched: exactLookup.searched,
+        numFound: exactLookup.numFound ?? null,
+        added: allListings.length - listings.length
+      },
       limit: MARKETCHECK_SEARCH_MAX_LISTINGS,
       comps
     });
