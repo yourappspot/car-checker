@@ -12,7 +12,7 @@ app.use(express.static(__dirname));
 const MARKETCHECK_API_KEY = String(process.env.MARKETCHECK_API_KEY || '').trim();
 const cache = new Map();
 const MARKETCHECK_SEARCH_PAGE_SIZE = 50;
-const MARKETCHECK_SEARCH_MAX_LISTINGS = 300;
+const MARKETCHECK_SEARCH_MAX_LISTINGS = 400;
 const MARKETCHECK_PAGE_DELAY_MS = 250;
 const MARKETCHECK_RATE_LIMIT_RETRIES = 2;
 const NHTSA_VEHICLE_TYPES = [
