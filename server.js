@@ -30,15 +30,6 @@ async function cachedGet(key, url) {
   return res.data;
 }
 
-async function cachedAxiosGet(key, url, options) {
-  if (cache.has(key)) return cache.get(key);
-
-  const res = await marketCheckGet(url, options);
-  cache.set(key, res.data);
-
-  return res.data;
-}
-
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -97,50 +88,44 @@ function sortUnique(values) {
     .sort((a, b) => a.localeCompare(b));
 }
 
-function facetItems(data, field) {
-  return (data.facets?.[field] || [])
-    .map(item => item.item)
-    .filter(Boolean);
-}
+const COMMON_MAKES = [
+  'Acura',
+  'Audi',
+  'BMW',
+  'Buick',
+  'Cadillac',
+  'Chevrolet',
+  'Chrysler',
+  'Dodge',
+  'Ford',
+  'GMC',
+  'Honda',
+  'Hyundai',
+  'Jeep',
+  'Kia',
+  'Lexus',
+  'Lincoln',
+  'Mazda',
+  'Mercedes-Benz',
+  'Nissan',
+  'Ram',
+  'Subaru',
+  'Tesla',
+  'Toyota',
+  'Volkswagen'
+];
 
-async function getMarketCheckMakes() {
-  if (!MARKETCHECK_API_KEY) return [];
+const COMMON_MODELS_BY_MAKE = {
+  chevrolet: ['Colorado', 'Equinox', 'Malibu', 'Silverado 1500', 'Silverado 2500HD', 'Silverado 3500HD', 'Suburban', 'Tahoe', 'Trailblazer', 'Traverse'],
+  dodge: ['Challenger', 'Charger', 'Durango', 'Grand Caravan', 'Journey', 'Ram 1500', 'Ram 2500', 'Ram 3500'],
+  ford: ['Bronco', 'Bronco Sport', 'Edge', 'Escape', 'Expedition', 'Explorer', 'F-150', 'F-250', 'F-350', 'F-450', 'Maverick', 'Mustang', 'Ranger', 'Super Duty', 'Transit'],
+  gmc: ['Acadia', 'Canyon', 'Savana', 'Sierra 1500', 'Sierra 2500HD', 'Sierra 3500HD', 'Terrain', 'Yukon'],
+  ram: ['1500', '2500', '3500', '4500', '5500', 'ProMaster', 'ProMaster City', 'Ram 1500', 'Ram 2500', 'Ram 3500'],
+  toyota: ['4Runner', 'Camry', 'Corolla', 'Highlander', 'RAV4', 'Sequoia', 'Sienna', 'Tacoma', 'Tundra']
+};
 
-  const data = await cachedAxiosGet(
-    'marketcheck-makes',
-    'https://api.marketcheck.com/v2/search/car/active',
-    {
-      params: {
-        api_key: MARKETCHECK_API_KEY,
-        rows: 0,
-        facets: 'make|0|1000',
-        facet_sort: 'index'
-      }
-    }
-  );
-
-  return sortUnique(facetItems(data, 'make'));
-}
-
-async function getMarketCheckModels(year, make) {
-  if (!MARKETCHECK_API_KEY) return [];
-
-  const data = await cachedAxiosGet(
-    `marketcheck-models-${year}-${make}`,
-    'https://api.marketcheck.com/v2/search/car/active',
-    {
-      params: {
-        api_key: MARKETCHECK_API_KEY,
-        year,
-        make,
-        rows: 0,
-        facets: 'model|0|1000',
-        facet_sort: 'index'
-      }
-    }
-  );
-
-  return sortUnique(facetItems(data, 'model'));
+function getCommonModels(make) {
+  return COMMON_MODELS_BY_MAKE[String(make || '').toLowerCase()] || [];
 }
 
 async function getNhtsaMakes() {
@@ -418,22 +403,15 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/makes', async (req, res) => {
   try {
-    let makes = [];
+    const makes = sortUnique([
+      ...COMMON_MAKES,
+      ...(await getNhtsaMakes())
+    ]);
 
-    try {
-      makes = await getMarketCheckMakes();
-    } catch (err) {
-      console.warn('MarketCheck make facets unavailable; falling back to NHTSA:', {
-        status: err.response?.status,
-        data: err.response?.data || err.message
-      });
-    }
-
-    if (!makes.length) {
-      makes = await getNhtsaMakes();
-    }
-
-    res.json({ makes });
+    res.json({
+      makes,
+      source: 'nhtsa+local'
+    });
   } catch (err) {
     console.error(err.response?.data || err.message);
 
@@ -453,31 +431,15 @@ app.get('/api/models', async (req, res) => {
       });
     }
 
-    const [marketCheckResult, nhtsaResult] = await Promise.allSettled([
-      getMarketCheckModels(year, make),
-      getNhtsaModels(year, make)
-    ]);
-
-    if (marketCheckResult.status === 'rejected') {
-      console.warn('MarketCheck model facets unavailable:', {
-        status: marketCheckResult.reason.response?.status,
-        data: marketCheckResult.reason.response?.data || marketCheckResult.reason.message
-      });
-    }
-
-    if (nhtsaResult.status === 'rejected') {
-      console.warn('NHTSA model list unavailable:', {
-        status: nhtsaResult.reason.response?.status,
-        data: nhtsaResult.reason.response?.data || nhtsaResult.reason.message
-      });
-    }
-
     const models = sortUnique([
-      ...(marketCheckResult.status === 'fulfilled' ? marketCheckResult.value : []),
-      ...(nhtsaResult.status === 'fulfilled' ? nhtsaResult.value : [])
+      ...getCommonModels(make),
+      ...(await getNhtsaModels(year, make))
     ]);
 
-    res.json({ models });
+    res.json({
+      models,
+      source: 'nhtsa+local'
+    });
   } catch (err) {
     console.error(err.response?.data || err.message);
 
