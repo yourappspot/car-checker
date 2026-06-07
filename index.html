@@ -192,6 +192,16 @@
         <option value="distance">Closest Distance</option>
       </select>
 
+      <select id="trimFilter" disabled>
+        <option value="">All Trims</option>
+      </select>
+
+      <input id="maxPrice" type="number" min="0" step="500" placeholder="Max price">
+
+      <input id="maxMileage" type="number" min="0" step="1000" placeholder="Max mileage">
+
+      <input id="maxDistance" type="number" min="0" step="5" placeholder="Max distance">
+
     </div>
 
     <button onclick="runSearch()">
@@ -209,19 +219,23 @@
 let latestData = [];
 
 async function loadYears() {
-  const res = await fetch('/api/years');
-  const data = await res.json();
+  try {
+    const res = await fetch('/api/years');
+    const data = await res.json();
 
-  const year = document.getElementById('year');
+    const year = document.getElementById('year');
 
-  data.years.forEach(y => {
-    const opt = document.createElement('option');
+    data.years.forEach(y => {
+      const opt = document.createElement('option');
 
-    opt.value = y;
-    opt.textContent = y;
+      opt.value = y;
+      opt.textContent = y;
 
-    year.appendChild(opt);
-  });
+      year.appendChild(opt);
+    });
+  } catch (err) {
+    showError('Could not load years. Please refresh the page.');
+  }
 }
 
 async function loadMakes() {
@@ -233,24 +247,34 @@ async function loadMakes() {
 
   make.innerHTML = '<option>Loading...</option>';
 
-  const res = await fetch(`/api/makes?year=${year}`);
-  const data = await res.json();
+  try {
+    const res = await fetch(`/api/makes?year=${year}`);
+    const data = await res.json();
 
-  make.innerHTML = '<option value="">Select Make</option>';
+    if (!res.ok || data.error) {
+      throw new Error(data.error || 'Failed loading makes');
+    }
 
-  data.makes.forEach(m => {
-    const opt = document.createElement('option');
+    make.innerHTML = '<option value="">Select Make</option>';
 
-    opt.value = m;
-    opt.textContent = m;
+    data.makes.forEach(m => {
+      const opt = document.createElement('option');
 
-    make.appendChild(opt);
-  });
+      opt.value = m;
+      opt.textContent = m;
 
-  make.disabled = false;
+      make.appendChild(opt);
+    });
 
-  model.innerHTML = '<option value="">Select Model</option>';
-  model.disabled = true;
+    make.disabled = false;
+
+    model.innerHTML = '<option value="">Select Model</option>';
+    model.disabled = true;
+  } catch (err) {
+    make.innerHTML = '<option value="">Select Make</option>';
+    make.disabled = true;
+    showError(err.message || 'Failed loading makes');
+  }
 }
 
 async function loadModels() {
@@ -262,24 +286,34 @@ async function loadModels() {
 
   model.innerHTML = '<option>Loading...</option>';
 
-  const res = await fetch(
-    `/api/models?year=${year}&make=${encodeURIComponent(make)}`
-  );
+  try {
+    const res = await fetch(
+      `/api/models?year=${year}&make=${encodeURIComponent(make)}`
+    );
 
-  const data = await res.json();
+    const data = await res.json();
 
-  model.innerHTML = '<option value="">Select Model</option>';
+    if (!res.ok || data.error) {
+      throw new Error(data.error || 'Failed loading models');
+    }
 
-  data.models.forEach(m => {
-    const opt = document.createElement('option');
+    model.innerHTML = '<option value="">Select Model</option>';
 
-    opt.value = m;
-    opt.textContent = m;
+    data.models.forEach(m => {
+      const opt = document.createElement('option');
 
-    model.appendChild(opt);
-  });
+      opt.value = m;
+      opt.textContent = m;
 
-  model.disabled = false;
+      model.appendChild(opt);
+    });
+
+    model.disabled = false;
+  } catch (err) {
+    model.innerHTML = '<option value="">Select Model</option>';
+    model.disabled = true;
+    showError(err.message || 'Failed loading models');
+  }
 }
 
 window.onload = loadYears;
@@ -309,11 +343,65 @@ function sortComps(comps) {
   return sorted;
 }
 
+function filterComps(comps) {
+  const trimFilter = document.getElementById('trimFilter').value;
+  const maxPrice = Number(document.getElementById('maxPrice').value);
+  const maxMileage = Number(document.getElementById('maxMileage').value);
+  const maxDistance = Number(document.getElementById('maxDistance').value);
+
+  return comps.filter(car => {
+    const trimMatches =
+      !trimFilter ||
+      String(car.trim || '').trim() === trimFilter;
+
+    const priceMatches =
+      !maxPrice ||
+      Number(car.price) <= maxPrice;
+
+    const mileageMatches =
+      !maxMileage ||
+      (car.miles !== null && Number(car.miles) <= maxMileage);
+
+    const distanceMatches =
+      !maxDistance ||
+      Number(car.dist) <= maxDistance;
+
+    return trimMatches && priceMatches && mileageMatches && distanceMatches;
+  });
+}
+
+function updateTrimFilter(comps) {
+  const trimFilter = document.getElementById('trimFilter');
+  const currentValue = trimFilter.value;
+  const trims = [...new Set(
+    comps
+      .map(car => String(car.trim || '').trim())
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b));
+
+  trimFilter.innerHTML = '<option value="">All Trims</option>';
+
+  trims.forEach(trim => {
+    const opt = document.createElement('option');
+
+    opt.value = trim;
+    opt.textContent = trim;
+
+    trimFilter.appendChild(opt);
+  });
+
+  trimFilter.disabled = trims.length === 0;
+
+  if (trims.includes(currentValue)) {
+    trimFilter.value = currentValue;
+  }
+}
+
 function renderComps() {
 
   const results = document.getElementById('results');
 
-  const comps = sortComps(latestData);
+  const comps = sortComps(filterComps(latestData));
 
   results.innerHTML = `
     <div class="card">
@@ -323,7 +411,7 @@ function renderComps() {
       </h2>
 
       <p class="muted">
-        ${comps.length} listings found.
+        ${comps.length} of ${latestData.length} listings shown.
       </p>
 
       ${comps.map(car => `
@@ -386,6 +474,41 @@ function renderComps() {
   `;
 }
 
+function showError(message) {
+  const results = document.getElementById('results');
+
+  results.innerHTML = `
+    <div class="card">
+      ${escapeHtml(message)}
+    </div>
+  `;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+async function readJsonResponse(res) {
+  let data = {};
+
+  try {
+    data = await res.json();
+  } catch (err) {
+    throw new Error('The server returned an unexpected response.');
+  }
+
+  if (!res.ok || data.error) {
+    throw new Error(data.error || 'Request failed.');
+  }
+
+  return data;
+}
+
 async function runSearch() {
 
   const results = document.getElementById('results');
@@ -415,34 +538,37 @@ async function runSearch() {
     </div>
   `;
 
-  const res = await fetch('/api/live-comps', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
+  let data;
 
-  const data = await res.json();
+  try {
+    const res = await fetch('/api/live-comps', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
 
-  if (data.error) {
-
-    results.innerHTML = `
-      <div class="card">
-        ${data.error}
-      </div>
-    `;
-
+    data = await readJsonResponse(res);
+  } catch (err) {
+    showError(err.message || 'Failed loading comparable listings.');
     return;
   }
 
   latestData = data.comps;
+  updateTrimFilter(latestData);
 
   renderComps();
 }
 
 document.addEventListener('change', e => {
-  if (e.target.id === 'sort') {
+  if (['sort', 'trimFilter', 'maxPrice', 'maxMileage', 'maxDistance'].includes(e.target.id)) {
+    renderComps();
+  }
+});
+
+document.addEventListener('input', e => {
+  if (['maxPrice', 'maxMileage', 'maxDistance'].includes(e.target.id)) {
     renderComps();
   }
 });
