@@ -274,9 +274,12 @@ async function fetchMarketCheckListings(params) {
 }
 
 function getListingKey(car) {
+  const vin = String(car.vin || '').trim().toLowerCase();
+
+  if (vin) return `vin:${vin}`;
+
   return [
     car.id,
-    car.vin,
     car.stock_no,
     car.source
   ]
@@ -285,17 +288,45 @@ function getListingKey(car) {
     .join('|');
 }
 
-function mergeListings(primaryListings, extraListings) {
-  const seen = new Set();
+function getListingPreferenceScore(car, query) {
+  const dealerTerm = getDealerSearchTerm(query);
+  let score = 0;
+
+  if (dealerTerm && listingMatchesDealerTerm(car, dealerTerm)) score += 100;
+  if (car.mc_dealership?.name) score += 20;
+  if (car.dealer?.name) score += 10;
+  if (car.source) score += 5;
+  if (car.year || car.build?.year) score += 3;
+  if (Number(car.dist) > 0) score += 2;
+
+  return score;
+}
+
+function mergeListings(primaryListings, extraListings, query = '') {
+  const byKey = new Map();
   const merged = [];
 
   [...primaryListings, ...extraListings].forEach(car => {
     const key = getListingKey(car);
 
-    if (key && seen.has(key)) return;
+    if (!key) {
+      merged.push(car);
+      return;
+    }
 
-    if (key) seen.add(key);
-    merged.push(car);
+    const existing = byKey.get(key);
+
+    if (!existing) {
+      byKey.set(key, car);
+      merged.push(car);
+      return;
+    }
+
+    if (getListingPreferenceScore(car, query) > getListingPreferenceScore(existing, query)) {
+      byKey.set(key, car);
+      const index = merged.indexOf(existing);
+      if (index >= 0) merged[index] = car;
+    }
   });
 
   return merged;
@@ -662,8 +693,8 @@ app.post('/api/live-comps', async (req, res) => {
       listings.length,
       numFound
     );
-    const listingsWithExact = mergeListings(listings, exactLookup.listings);
-    const allListings = mergeListings(listingsWithExact, dealerScan.listings);
+    const listingsWithExact = mergeListings(listings, exactLookup.listings, dealerFilter);
+    const allListings = mergeListings(listingsWithExact, dealerScan.listings, dealerFilter);
 
     const comps = allListings
       .map(car => {
