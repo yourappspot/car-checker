@@ -744,6 +744,7 @@ app.post('/api/live-comps', async (req, res) => {
 
     res.json({
       total: comps.length,
+      rawLoaded: listings.length,
       numFound,
       exactLookup: {
         searched: exactLookup.searched,

@@ -220,6 +220,7 @@
 
 let latestData = [];
 let latestMeta = '';
+let latestResultMeta = '';
 
 async function loadYears() {
   try {
@@ -432,7 +433,8 @@ function renderComps() {
       </h2>
 
       <p class="muted">
-        ${comps.length} of ${latestData.length} listings shown.
+        ${comps.length} of ${latestData.length} unique listings shown.
+        ${latestResultMeta}
         ${latestMeta}
       </p>
 
@@ -607,10 +609,25 @@ async function runSearch() {
   }
 
   latestData = data.comps;
+  latestResultMeta = getResultMeta(data);
   latestMeta = getSearchMeta(data);
   updateTrimFilter(latestData);
 
   renderComps();
+}
+
+function getResultMeta(data) {
+  const parts = [];
+
+  if (Number.isFinite(Number(data.rawLoaded))) {
+    parts.push(`${Number(data.rawLoaded).toLocaleString()} raw MarketCheck rows loaded`);
+  }
+
+  if (Number.isFinite(Number(data.numFound))) {
+    parts.push(`${Number(data.numFound).toLocaleString()} total MarketCheck matches reported`);
+  }
+
+  return parts.length ? `${parts.join('; ')}.` : '';
 }
 
 function getSearchMeta(data) {
