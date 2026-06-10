@@ -388,29 +388,32 @@ function getExactListingDiagnostics(params, exactListings) {
 
   const car = exactListings[0];
   const dealer = car.mc_dealership || car.dealer || {};
+  const exactYear = car.year || car.build?.year;
+  const exactMake = car.build?.make || car.make;
+  const exactModelName = car.build?.model || car.model;
   const broadModel = normalizeComparableValue(params.model);
-  const exactModel = normalizeComparableValue(car.build?.model || car.model);
+  const exactModel = normalizeComparableValue(exactModelName);
   const distance = Number(car.dist);
   const radius = Number(params.radius);
 
   const diagnostics = [
-    `Exact VIN fields: ${car.year || 'unknown year'} ${car.build?.make || car.make || 'unknown make'} ${car.build?.model || car.model || 'unknown model'} ${car.build?.trim || ''}`.trim(),
+    `Exact VIN fields: ${exactYear || 'unknown year'} ${exactMake || 'unknown make'} ${exactModelName || 'unknown model'} ${car.build?.trim || ''}`.trim(),
     `Dealer/source: ${dealer.name || car.dealer?.name || 'unknown dealer'}${car.source ? ` via ${car.source}` : ''}`
   ];
 
-  if (String(car.year || '') !== String(params.year || '')) {
-    diagnostics.push(`Year differs from broad search (${car.year || 'blank'} vs ${params.year}).`);
+  if (String(exactYear || '') !== String(params.year || '')) {
+    diagnostics.push(`Year differs from broad search (${exactYear || 'blank'} vs ${params.year}).`);
   }
 
-  if (normalizeComparableValue(car.build?.make || car.make) !== normalizeComparableValue(params.make)) {
-    diagnostics.push(`Make differs from broad search (${car.build?.make || car.make || 'blank'} vs ${params.make}).`);
+  if (normalizeComparableValue(exactMake) !== normalizeComparableValue(params.make)) {
+    diagnostics.push(`Make differs from broad search (${exactMake || 'blank'} vs ${params.make}).`);
   }
 
   if (exactModel && broadModel && exactModel !== broadModel) {
-    diagnostics.push(`Model differs from broad search (${car.build?.model || car.model || 'blank'} vs ${params.model}).`);
+    diagnostics.push(`Model differs from broad search (${exactModelName || 'blank'} vs ${params.model}).`);
   }
 
-  if (Number.isFinite(distance) && distance > 0) {
+  if (car.dist !== null && car.dist !== undefined && car.dist !== '' && Number.isFinite(distance)) {
     diagnostics.push(`Exact VIN distance returned by MarketCheck: ${distance} miles.`);
 
     if (Number.isFinite(radius) && distance > radius) {
@@ -512,8 +515,12 @@ function getExactLookupParams(params, query) {
     return {
       api_key: MARKETCHECK_API_KEY,
       vin: normalized,
+      zip: params.zip,
+      radius: params.radius || 75,
       rows: MARKETCHECK_SEARCH_PAGE_SIZE,
-      nodedup: true
+      nodedup: true,
+      sort_by: 'dist',
+      sort_order: 'asc'
     };
   }
 
@@ -686,7 +693,6 @@ app.post('/api/live-comps', async (req, res) => {
 
     const { listings, numFound } = await fetchMarketCheckListings(params);
     const exactLookup = await fetchExactIdentifierListings(params, dealerFilter);
-    const exactDiagnostics = getExactListingDiagnostics(params, exactLookup.listings);
     const dealerScan = await fetchDealerScanListings(
       params,
       dealerFilter,
@@ -695,6 +701,10 @@ app.post('/api/live-comps', async (req, res) => {
     );
     const listingsWithExact = mergeListings(listings, exactLookup.listings, dealerFilter);
     const allListings = mergeListings(listingsWithExact, dealerScan.listings, dealerFilter);
+    const exactDiagnostics = getExactListingDiagnostics(
+      params,
+      mergeListings([], exactLookup.listings, dealerFilter)
+    );
 
     const comps = allListings
       .map(car => {
@@ -710,7 +720,7 @@ app.post('/api/live-comps', async (req, res) => {
           miles: car.miles ? Number(car.miles) : null,
           dist: Number(car.dist || 0),
 
-          year: car.year || '',
+          year: car.year || car.build?.year || '',
           make: car.build?.make || make,
           model: car.build?.model || model,
           trim: car.build?.trim || '',
