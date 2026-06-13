@@ -185,6 +185,23 @@
         <option value="200">200 miles</option>
       </select>
 
+      <select id="exteriorColor">
+        <option value="">Any Exterior Color</option>
+        <option value="Black">Black</option>
+        <option value="White">White</option>
+        <option value="Gray">Gray</option>
+        <option value="Silver">Silver</option>
+        <option value="Blue">Blue</option>
+        <option value="Red">Red</option>
+        <option value="Green">Green</option>
+        <option value="Brown">Brown</option>
+        <option value="Beige">Beige</option>
+        <option value="Gold">Gold</option>
+        <option value="Orange">Orange</option>
+        <option value="Yellow">Yellow</option>
+        <option value="Purple">Purple</option>
+      </select>
+
       <select id="sort">
         <option value="price-low">Lowest Price</option>
         <option value="price-high">Highest Price</option>
@@ -506,6 +523,12 @@ function renderComps() {
                   : ''
               }
 
+              ${
+                car.exteriorColor
+                  ? `Exterior color: ${car.exteriorColor}<br>`
+                  : ''
+              }
+
               Location:
               ${car.city}, ${car.state}
 
@@ -571,6 +594,7 @@ async function runSearch() {
     model: document.getElementById('model').value,
     zip: document.getElementById('zip').value,
     radius: document.getElementById('radius').value,
+    exteriorColor: document.getElementById('exteriorColor').value,
     dealerFilter: document.getElementById('dealerFilter').value
   };
 

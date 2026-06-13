@@ -172,7 +172,7 @@ function normalizeMarketCheckModel(make, model) {
   return md;
 }
 
-function buildMarketCheckParams({ year, make, model, zip, radius }) {
+function buildMarketCheckParams({ year, make, model, zip, radius, exteriorColor }) {
   const marketModel = normalizeMarketCheckModel(make, model);
 
   const params = {
@@ -187,6 +187,10 @@ function buildMarketCheckParams({ year, make, model, zip, radius }) {
     sort_by: 'dist',
     sort_order: 'asc'
   };
+
+  if (exteriorColor) {
+    params.base_ext_color = exteriorColor;
+  }
 
   if (String(make || '').toLowerCase() === 'ford') {
     if (/^F-?250$/i.test(marketModel)) {
@@ -668,6 +672,7 @@ app.post('/api/live-comps', async (req, res) => {
       model,
       zip,
       radius,
+      exteriorColor,
       dealerFilter
     } = req.body;
 
@@ -688,7 +693,8 @@ app.post('/api/live-comps', async (req, res) => {
       make,
       model,
       zip,
-      radius
+      radius,
+      exteriorColor
     });
 
     const { listings, numFound } = await fetchMarketCheckListings(params);
@@ -716,6 +722,12 @@ app.post('/api/live-comps', async (req, res) => {
           stockNo: car.stock_no || '',
           source: car.source || '',
           inventoryType: car.inventory_type || '',
+          exteriorColor:
+            car.exterior_color ||
+            car.base_exterior_color ||
+            car.base_ext_color ||
+            car.build?.exterior_color ||
+            '',
           price: car.price ? Number(car.price) : null,
           miles: car.miles ? Number(car.miles) : null,
           dist: Number(car.dist || 0),
